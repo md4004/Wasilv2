@@ -1,0 +1,7 @@
+{
+  "name": "Wasil App",
+  "description": "A premium service concierge web app designed for the Lebanese diaspora to manage care and maintenance for their parents in Lebanon with peace of mind.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
