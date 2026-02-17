@@ -14,6 +14,7 @@ const Header: React.FC<HeaderProps> = ({ activeView, setView, notifications, onM
   const [showNotifs, setShowNotifs] = useState(false);
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  // Fix: Added missing ADMIN_DASHBOARD title to satisfy AppView Record requirement
   const titles: Record<AppView, string> = {
     DASHBOARD: 'Home',
     CATALOG: 'Services',
@@ -24,7 +25,9 @@ const Header: React.FC<HeaderProps> = ({ activeView, setView, notifications, onM
     DEPENDANTS: 'Dependants',
     NOTIFICATIONS_FULL: 'Activity',
     PAYMENT_METHODS_ADD: 'Payments',
-    DISPATCHERS: 'Team'
+    DISPATCHERS: 'Team',
+    DISPATCHER_DASHBOARD: 'Scout Portal',
+    ADMIN_DASHBOARD: 'HQ Control'
   };
 
   return (

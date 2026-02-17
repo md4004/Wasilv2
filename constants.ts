@@ -99,7 +99,9 @@ export const DISPATCHERS: Dispatcher[] = [
     role: 'Electrical Specialist & Scout Leader',
     rating: 4.9,
     certifications: ['Certified Electrician', 'First Aid Trained', 'Solar Pro'],
-    photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop'
+    photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop',
+    // Fix: Added missing required property supportedServiceIds
+    supportedServiceIds: ['solar-check', 'inverter-beep', 'panel-clean', 'leak-repair', 'tank-fill']
   },
   {
     id: 'disp-2',
@@ -107,7 +109,9 @@ export const DISPATCHERS: Dispatcher[] = [
     role: 'IT Technician & Logistics Pro',
     rating: 4.8,
     certifications: ['Cisco Certified', 'Emergency Responder', 'Safe Driver'],
-    photoUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&h=400&fit=crop'
+    photoUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&h=400&fit=crop',
+    // Fix: Added missing required property supportedServiceIds
+    supportedServiceIds: ['wifi-fix', 'laptop-repair', 'printer-setup', 'medication', 'grocery']
   }
 ];
 

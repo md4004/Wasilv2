@@ -29,7 +29,7 @@ const ChatModal: React.FC<ChatModalProps> = ({ request, onClose, currentUser, di
     if (!inputText.trim()) return;
     const newMessage: Message = {
       id: Date.now().toString(),
-      senderId: 'user',
+      senderId: currentUser.uid,
       text: inputText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -37,18 +37,22 @@ const ChatModal: React.FC<ChatModalProps> = ({ request, onClose, currentUser, di
     setInputText('');
   };
 
+  const isDispatcherMode = currentUser.role === 'dispatcher';
+
   return (
-    <div className="fixed inset-0 z-[200] flex items-end justify-center bg-navy/60 backdrop-blur-sm animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-navy/60 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="w-full max-w-2xl bg-[#FDFCF8] rounded-t-[2.5rem] shadow-2xl flex flex-col h-[85vh] animate-in slide-in-from-bottom-10 duration-500">
         
         {/* Chat Header */}
         <div className="p-6 border-b border-navy/5 flex justify-between items-center bg-sand/20 rounded-t-[2.5rem]">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-md">
-              <img src={dispatcher.photoUrl} alt={dispatcher.name} className="w-full h-full object-cover" />
+              <img src={isDispatcherMode ? 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop' : dispatcher.photoUrl} alt="Contact" className="w-full h-full object-cover" />
             </div>
             <div>
-              <h3 className="font-serif font-bold text-navy text-lg leading-none mb-1">Mission Support</h3>
+              <h3 className="font-serif font-bold text-navy text-lg leading-none mb-1">
+                {isDispatcherMode ? `Chat with Expat (${request.parentName}'s contact)` : `Mission Scout: ${dispatcher.name}`}
+              </h3>
               <p className="text-[10px] text-sage font-bold uppercase tracking-widest">{request.id.toUpperCase()}</p>
             </div>
           </div>
@@ -65,26 +69,29 @@ const ChatModal: React.FC<ChatModalProps> = ({ request, onClose, currentUser, di
         {/* Message Notice */}
         <div className="bg-sage/10 px-6 py-2 border-b border-sage/10 text-center">
           <p className="text-[9px] font-bold text-sage uppercase tracking-widest">
-            This chat will close when the task is marked Complete.
+            {isDispatcherMode ? 'Update the expat on mission progress here.' : 'Secure line to your assigned scout in Lebanon.'}
           </p>
         </div>
 
         {/* Messages Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
-          {messages.map(msg => (
-            <div key={msg.id} className={`flex ${msg.senderId === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] rounded-2xl p-4 shadow-sm ${
-                msg.senderId === 'user' 
-                  ? 'bg-navy text-sand rounded-br-none' 
-                  : 'bg-white text-navy border border-navy/5 rounded-bl-none'
-              }`}>
-                <p className="text-sm leading-relaxed">{msg.text}</p>
-                <p className={`text-[9px] mt-2 font-bold uppercase tracking-widest opacity-40`}>
-                  {msg.timestamp}
-                </p>
+          {messages.map(msg => {
+            const isMe = msg.senderId === currentUser.uid;
+            return (
+              <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[80%] rounded-2xl p-4 shadow-sm ${
+                  isMe 
+                    ? 'bg-navy text-sand rounded-br-none' 
+                    : 'bg-white text-navy border border-navy/5 rounded-bl-none'
+                }`}>
+                  <p className="text-sm leading-relaxed">{msg.text}</p>
+                  <p className={`text-[9px] mt-2 font-bold uppercase tracking-widest opacity-40`}>
+                    {msg.timestamp} {isMe ? '(You)' : ''}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           <div ref={chatEndRef} />
         </div>
 
@@ -96,7 +103,7 @@ const ChatModal: React.FC<ChatModalProps> = ({ request, onClose, currentUser, di
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder="Message Samer..."
+              placeholder={isDispatcherMode ? "Message the Expat..." : "Message Scout..."}
               className="flex-1 bg-transparent border-none focus:ring-0 text-sm text-navy placeholder:text-navy/30"
             />
             <button 

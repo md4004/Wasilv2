@@ -9,11 +9,15 @@ import {
   setDoc,
   updateDoc, 
   deleteDoc,
-  serverTimestamp 
+  serverTimestamp,
+  query,
+  where,
+  getDocs,
+  orderBy
 } from 'firebase/firestore';
 import { auth, db } from './services/firebase';
-import { AppView, ServiceRequest, Service, RequestStatus, Notification, User, Dependant, Dispatcher, Language, SubscriptionTier } from './types';
-import { SERVICES, DISPATCHERS } from './constants';
+import { AppView, ServiceRequest, Service, RequestStatus, Notification, User, Dependant, Provider, Language, SubscriptionTier } from './types';
+import { SERVICES } from './constants';
 import Dashboard from './components/Dashboard';
 import ServiceCatalog from './components/ServiceCatalog';
 import RequestFlow from './components/RequestFlow';
@@ -25,6 +29,8 @@ import DependantsPage from './components/DependantsPage';
 import NotificationsPage from './components/NotificationsPage';
 import PaymentMethodSelection from './components/PaymentMethodSelection';
 import DispatchersPage from './components/DispatchersPage';
+import DispatcherDashboard from './components/DispatcherDashboard';
+import AdminDashboard, { AdminOngoingMissions, AdminTeamCMS } from './components/AdminDashboard';
 import AssignmentModal from './components/AssignmentModal';
 import ChatModal from './components/ChatModal';
 import LoadingScreen from './components/LoadingScreen';
@@ -32,13 +38,15 @@ import BottomNav from './components/BottomNav';
 import RequireAuthModal from './components/RequireAuthModal';
 
 const guestUser: User = {
+  uid: 'guest',
   name: 'Guest Explorer',
   email: 'guest@wasil.app',
   phone: '',
   country: 'Global',
   address: 'Browsing Mode',
   photoUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&h=400&fit=crop',
-  plan: 'Basic' as SubscriptionTier
+  plan: 'Basic' as SubscriptionTier,
+  role: 'user'
 };
 
 const App: React.FC = () => {
@@ -59,7 +67,7 @@ const App: React.FC = () => {
   const scrollContainerRef = useRef<HTMLElement>(null);
 
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
-  const [assignedDispatcher, setAssignedDispatcher] = useState<Dispatcher | null>(null);
+  const [assignedDispatcher, setAssignedDispatcher] = useState<Provider | null>(null);
   const [preSelectedDepId, setPreSelectedDepId] = useState<string | null>(null);
   const [activeChatRequest, setActiveChatRequest] = useState<ServiceRequest | null>(null);
   const [showRequireAuth, setShowRequireAuth] = useState(false);
@@ -95,35 +103,59 @@ const App: React.FC = () => {
         try {
           const userDoc = await getDoc(doc(db, 'users', uid));
           if (userDoc.exists()) {
-            setCurrentUser(userDoc.data() as User);
+            const userData = { ...userDoc.data(), uid } as User;
+            setCurrentUser(userData);
+
+            if (userData.role === 'dispatcher') {
+              setIsLoggedIn(true);
+              setIsGuestMode(false);
+              setView('DISPATCHER_DASHBOARD');
+              setIsLoading(false);
+              return;
+            }
+
+            // GLOBAL LISTENER FOR ADMINS
+            if (userData.role === 'admin') {
+              // Fetch ALL dependants for Admin
+              unsubDeps = onSnapshot(collection(db, 'requests'), (snapshot) => {
+                 // In a real app we'd fetch all dependants from a flat collection
+                 // For now we'll listen to a global dependants collection if it exists, or fetch nested ones
+              });
+              
+              // This is a placeholder for global dependants. In the UI, the Admin will see a flat list
+              unsubDeps = onSnapshot(collection(db, 'global_dependants'), (snapshot) => {
+                setDependants(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Dependant)));
+              });
+
+              const globalReqQuery = query(collection(db, 'requests'), orderBy('timestamp', 'desc'));
+              unsubReqs = onSnapshot(globalReqQuery, (snap) => {
+                setRequests(snap.docs.map(d => ({ ...d.data(), id: d.id } as ServiceRequest)));
+              });
+            } else {
+              // Regular user: Listen to personal dependants
+              unsubDeps = onSnapshot(collection(db, 'users', uid, 'dependants'), 
+                (snapshot) => {
+                  setDependants(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Dependant)));
+                }
+              );
+
+              const requestsQuery = query(collection(db, 'requests'), where('userId', '==', uid));
+              unsubReqs = onSnapshot(requestsQuery, (snapshot) => {
+                setRequests(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ServiceRequest)));
+              });
+            }
+
+            unsubNotifs = onSnapshot(collection(db, 'users', uid, 'notifications'), 
+              (snapshot) => {
+                const notifList = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Notification));
+                setNotifications(notifList.sort((a, b) => {
+                  const da = (a as any).timestamp?.toDate?.() || new Date(0);
+                  const db = (b as any).timestamp?.toDate?.() || new Date(0);
+                  return db.getTime() - da.getTime();
+                }));
+              }
+            );
           }
-
-          unsubDeps = onSnapshot(collection(db, 'users', uid, 'dependants'), 
-            (snapshot) => {
-              setDependants(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Dependant)));
-            }, 
-            (err) => console.error("Permission Error (Dependants):", err)
-          );
-
-          unsubReqs = onSnapshot(collection(db, 'users', uid, 'requests'), 
-            (snapshot) => {
-              const reqList = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ServiceRequest));
-              setRequests(reqList.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-            }, 
-            (err) => console.error("Permission Error (Requests):", err)
-          );
-
-          unsubNotifs = onSnapshot(collection(db, 'users', uid, 'notifications'), 
-            (snapshot) => {
-              const notifList = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Notification));
-              setNotifications(notifList.sort((a, b) => {
-                const da = (a as any).timestamp?.toDate?.() || new Date(0);
-                const db = (b as any).timestamp?.toDate?.() || new Date(0);
-                return db.getTime() - da.getTime();
-              }));
-            }, 
-            (err) => console.error("Permission Error (Notifications):", err)
-          );
 
           setIsLoggedIn(true);
           setIsGuestMode(false);
@@ -193,7 +225,7 @@ const App: React.FC = () => {
   const handleCancelRequest = async (requestId: string, reason: string) => {
     if (!auth.currentUser) return;
     try {
-      const reqRef = doc(db, 'users', auth.currentUser.uid, 'requests', requestId);
+      const reqRef = doc(db, 'requests', requestId);
       const reqSnap = await getDoc(reqRef);
       if (reqSnap.exists()) {
         const data = reqSnap.data() as ServiceRequest;
@@ -216,10 +248,15 @@ const App: React.FC = () => {
     });
   };
 
-  const handleContactDispatcher = (reqId: string) => {
+  const handleContactDispatcher = async (reqId: string) => {
     guardAuth(() => {
       const req = requests.find(r => r.id === reqId);
-      if (req) setActiveChatRequest(req);
+      if (req) {
+        onSnapshot(doc(db, 'dispatchers', req.assignedDispatcherId || ''), (snap) => {
+          if (snap.exists()) setAssignedDispatcher({ ...snap.data(), id: snap.id } as Provider);
+        });
+        setActiveChatRequest(req);
+      }
     });
   };
 
@@ -236,38 +273,50 @@ const App: React.FC = () => {
   const handleCompleteRequest = async (newRequest: ServiceRequest) => {
     if (!auth.currentUser) return;
     triggerLoading(1500);
-    const dispatcher = DISPATCHERS[Math.floor(Math.random() * DISPATCHERS.length)];
     const uid = auth.currentUser.uid;
-
     try {
+      const dispQuery = query(collection(db, 'dispatchers'), where('supportedServiceIds', 'array-contains', newRequest.serviceId));
+      const dispSnap = await getDocs(dispQuery);
+      let selectedDisp: Provider | null = null;
+      if (!dispSnap.empty) {
+        const candidates = dispSnap.docs.map(d => ({ ...d.data(), id: d.id } as Provider));
+        selectedDisp = candidates[Math.floor(Math.random() * candidates.length)];
+      } else {
+        const allDispSnap = await getDocs(collection(db, 'dispatchers'));
+        if (!allDispSnap.empty) {
+          selectedDisp = { ...allDispSnap.docs[0].data(), id: allDispSnap.docs[0].id } as Provider;
+        }
+      }
       const requestId = `req-${Date.now()}`;
       const enrichedRequest = { 
         ...newRequest, 
         id: requestId, 
         userId: uid, 
-        assignedDispatcherId: dispatcher.id,
-        timestamp: new Date().toISOString()
+        userName: currentUser?.name || 'Unknown Expat',
+        assignedDispatcherId: selectedDisp?.id || '', 
+        timestamp: new Date().toISOString() 
       };
+      await setDoc(doc(db, 'requests', requestId), enrichedRequest);
       
-      await setDoc(doc(db, 'users', uid, 'requests', requestId), enrichedRequest);
-      
-      setAssignedDispatcher(dispatcher);
-      setShowAssignmentModal(true);
-      
-      const notifId = `notif-${Date.now()}`;
-      await setDoc(doc(db, 'users', uid, 'notifications', notifId), {
-        id: notifId,
-        title: 'Dispatched',
-        message: `${newRequest.serviceTitle} for ${newRequest.parentName} assigned to ${dispatcher.name}.`,
-        time: 'Just now',
-        timestamp: serverTimestamp(),
-        read: false
-      });
+      // Also register the dependant globally for Admin tracking if it's the first time
+      const depRef = doc(db, 'global_dependants', newRequest.dependantId);
+      await setDoc(depRef, { 
+        id: newRequest.dependantId, 
+        name: newRequest.parentName, 
+        location: newRequest.location,
+        userId: uid,
+        userName: currentUser?.name || 'Unknown Expat'
+      }, { merge: true });
 
+      if (selectedDisp) {
+        setAssignedDispatcher(selectedDisp);
+        setShowAssignmentModal(true);
+      }
+      const notifId = `notif-${Date.now()}`;
+      await setDoc(doc(db, 'users', uid, 'notifications', notifId), { id: notifId, title: 'Dispatched', message: `${newRequest.serviceTitle} assigned to ${selectedDisp?.name || 'Local Scout'}.`, time: 'Just now', timestamp: serverTimestamp(), read: false });
       setPreSelectedDepId(null);
     } catch (error) {
-      console.error("Persistence Error:", error);
-      setToast({ message: "Permission Denied. Contact support.", type: "warning" });
+      setToast({ message: "Request failed.", type: "warning" });
     }
   };
 
@@ -276,7 +325,7 @@ const App: React.FC = () => {
     try {
       await updateDoc(doc(db, 'users', auth.currentUser.uid, 'notifications', id), { read: true });
     } catch (err) {
-      console.error("Notif Read Error:", err);
+      console.error(err);
     }
   };
 
@@ -297,6 +346,22 @@ const App: React.FC = () => {
     .filter((id): id is string => !!id);
 
   const renderView = () => {
+    if (currentUser?.role === 'dispatcher') {
+      return <DispatcherDashboard user={currentUser} onLogout={handleLogout} />;
+    }
+
+    if (currentUser?.role === 'admin') {
+      switch (view) {
+        case 'DASHBOARD': return <AdminDashboard user={currentUser} requests={requests} onLogout={handleLogout} />;
+        case 'CATALOG': return <AdminOngoingMissions requests={requests} onContactDispatcher={handleContactDispatcher} />;
+        case 'DEPENDANTS': return <DependantsPage dependants={dependants} setDependants={setDependants} onNewRequestForDependant={handleNewRequestForDependant} onDeleteDependant={handleDeleteDependant} onAddClick={handleQuickRegisterDep} isAdminView={true} />;
+        case 'DISPATCHERS': return <AdminTeamCMS user={currentUser} />;
+        case 'ACCOUNT': return <AccountPage user={currentUser} setUser={setCurrentUser as any} onLogout={handleLogout} onAddPayment={() => handleSetView('PAYMENT_METHODS_ADD')} language={language} setLanguage={setLanguage} />;
+        case 'NOTIFICATIONS_FULL': return <NotificationsPage notifications={notifications} onMarkRead={handleMarkNotifRead} onBack={() => handleSetView('DASHBOARD')} />;
+        default: return <AdminDashboard user={currentUser} requests={requests} onLogout={handleLogout} />;
+      }
+    }
+
     switch (view) {
       case 'DASHBOARD': return <Dashboard requests={requests} onNewRequest={() => handleSetView('CATALOG')} onContactDispatcher={handleContactDispatcher} onCancelRequest={handleCancelRequest} />;
       case 'CATALOG': return <ServiceCatalog onSelectService={handleStartRequest} onBack={() => handleSetView('DASHBOARD')} />;
@@ -312,25 +377,17 @@ const App: React.FC = () => {
 
   if (isLoading) return <LoadingScreen fadeOut={isFadingOut} />;
 
-  // CRITICAL: Full-screen Login Flow when not logged in and not in guest mode
   if (!isLoggedIn && !isGuestMode) {
-    return (
-      <div className="h-full w-full overflow-hidden">
-        <LoginFlow 
-          onLogin={() => {}} 
-          onBrowseGuest={() => setIsGuestMode(true)}
-        />
-      </div>
-    );
+    return <LoginFlow onLogin={() => {}} onBrowseGuest={() => setIsGuestMode(true)} />;
   }
+
+  const isChromeHidden = currentUser?.role === 'dispatcher';
 
   return (
     <div className={`flex h-full w-full bg-sand overflow-hidden font-sans fixed inset-0 ${language === 'ar' ? 'font-arabic' : ''}`} dir={language === 'ar' ? 'rtl' : 'ltr'}>
-      <Sidebar currentView={view} setView={handleSetView} user={currentUser || guestUser} />
-      
+      {!isChromeHidden && <Sidebar currentView={view} setView={handleSetView} user={currentUser || guestUser} />}
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
-        <Header activeView={view} setView={handleSetView} notifications={notifications} onMarkRead={handleMarkNotifRead} />
-        
+        {!isChromeHidden && <Header activeView={view} setView={handleSetView} notifications={notifications} onMarkRead={handleMarkNotifRead} />}
         {toast && (
           <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[150] animate-in slide-in-from-top-10 duration-500">
             <div className={`text-sand px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-white/10 ${toast.type === 'warning' ? 'bg-orange-500' : 'bg-navy'}`}>
@@ -339,34 +396,21 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
-
-        {showRequireAuth && (
-          <RequireAuthModal 
-            onClose={() => setShowRequireAuth(false)} 
-            onSignIn={() => {
-              setShowRequireAuth(false);
-              setIsGuestMode(false); // Triggers full-screen login flow
-            }} 
-          />
-        )}
-
-        {showAssignmentModal && assignedDispatcher && <AssignmentModal dispatcher={assignedDispatcher} onClose={() => { setShowAssignmentModal(false); handleSetView('DASHBOARD'); setSelectedService(null); }} onChat={() => { setShowAssignmentModal(false); if (requests.length > 0) setActiveChatRequest(requests[0]); setSelectedService(null); }} />}
-        
+        {showRequireAuth && <RequireAuthModal onClose={() => setShowRequireAuth(false)} onSignIn={() => { setShowRequireAuth(false); setIsGuestMode(false); }} />}
+        {showAssignmentModal && assignedDispatcher && <AssignmentModal dispatcher={assignedDispatcher} onClose={() => { setShowAssignmentModal(false); handleSetView('DASHBOARD'); setSelectedService(null); }} onChat={() => { setShowAssignmentModal(false); setActiveChatRequest(requests[0]); setSelectedService(null); }} />}
         {activeChatRequest && (
           <ChatModal 
             request={activeChatRequest} 
             onClose={() => setActiveChatRequest(null)} 
             currentUser={currentUser || guestUser} 
-            dispatcher={DISPATCHERS.find(d => d.id === activeChatRequest.assignedDispatcherId)!} 
+            dispatcher={assignedDispatcher || { id: activeChatRequest.assignedDispatcherId, name: 'Provider', photoUrl: '' } as any} 
           />
         )}
-
-        <main ref={scrollContainerRef} className={`h-full w-full overflow-y-auto no-scrollbar p-4 md:p-8 pt-24 pb-28 md:pb-12 max-w-7xl mx-auto relative z-0 touch-pan-y`} style={{ WebkitOverflowScrolling: 'touch' }}>
+        <main ref={scrollContainerRef} className={`h-full w-full overflow-y-auto no-scrollbar ${isChromeHidden ? '' : 'p-4 md:p-8 pt-24 pb-28 md:pb-12 max-w-7xl mx-auto'} relative z-0 touch-pan-y`} style={{ WebkitOverflowScrolling: 'touch' }}>
           {renderView()}
         </main>
       </div>
-
-      <BottomNav currentView={view} setView={handleSetView} />
+      {!isChromeHidden && <BottomNav currentView={view} setView={handleSetView} />}
     </div>
   );
 };

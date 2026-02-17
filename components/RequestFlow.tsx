@@ -35,8 +35,10 @@ const RequestFlow: React.FC<RequestFlowProps> = ({ service, dependants, onCancel
     
     const isCustom = service.id === 'custom-request';
     
+    // Added missing userId property to comply with ServiceRequest interface; it will be enriched with actual UID in App.tsx
     const newRequest: ServiceRequest = {
       id: `req-${Date.now()}`,
+      userId: '',
       serviceId: service.id,
       serviceTitle: isCustom ? 'Custom Request' : service.title,
       category: service.category,

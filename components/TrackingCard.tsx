@@ -1,28 +1,51 @@
 
-import React, { useState } from 'react';
-import { ServiceRequest, RequestStatus } from '../types';
-import { DISPATCHERS, CANCELLATION_REASONS } from '../constants';
+import React, { useState, useEffect } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../services/firebase';
+import { ServiceRequest, RequestStatus, Dispatcher } from '../types';
+import { CANCELLATION_REASONS } from '../constants';
 
 interface TrackingCardProps {
   request: ServiceRequest;
   onContactDispatcher: (id: string) => void;
   onCancel: () => void;
   onConfirmCancel: (reason: string) => void;
+  canChangeStatus?: boolean;
+  onStatusChange?: (id: string, newStatus: RequestStatus) => void;
+  children?: React.ReactNode; // For extra info in dispatcher/admin views
 }
 
-const TrackingCard: React.FC<TrackingCardProps> = ({ request, onContactDispatcher, onConfirmCancel }) => {
+const TrackingCard: React.FC<TrackingCardProps> = ({ 
+  request, 
+  onContactDispatcher, 
+  onConfirmCancel, 
+  canChangeStatus = false,
+  onStatusChange,
+  children
+}) => {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState(CANCELLATION_REASONS[0]);
+  const [dispatcher, setDispatcher] = useState<Dispatcher | null>(null);
+
+  useEffect(() => {
+    if (request.assignedDispatcherId) {
+      const unsub = onSnapshot(doc(db, 'dispatchers', request.assignedDispatcherId), (snap) => {
+        if (snap.exists()) {
+          setDispatcher({ ...snap.data(), id: snap.id } as Dispatcher);
+        }
+      });
+      return () => unsub();
+    }
+  }, [request.assignedDispatcherId]);
 
   const statusSteps = [
-    RequestStatus.REQUESTED,
-    RequestStatus.ASSIGNED,
-    RequestStatus.IN_PROGRESS,
-    RequestStatus.COMPLETED
+    { status: RequestStatus.REQUESTED, label: 'Requested' },
+    { status: RequestStatus.ASSIGNED, label: 'Assigned' },
+    { status: RequestStatus.IN_PROGRESS, label: 'On Site' },
+    { status: RequestStatus.COMPLETED, label: 'Done' }
   ];
   
-  const currentStepIndex = statusSteps.indexOf(request.status);
-  const dispatcher = DISPATCHERS.find(d => d.id === request.assignedDispatcherId);
+  const currentStepIndex = statusSteps.findIndex(s => s.status === request.status);
 
   const handleContactDispatch = () => {
     onContactDispatcher(request.id);
@@ -47,7 +70,7 @@ const TrackingCard: React.FC<TrackingCardProps> = ({ request, onContactDispatche
 
   return (
     <div className="bg-white rounded-3xl p-5 md:p-8 border border-navy/5 shadow-sm hover:shadow-md transition-shadow animate-in slide-in-from-left-4 duration-500 relative overflow-hidden">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 md:mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10 md:mb-12">
         <div className="flex items-center space-x-4">
           <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-sand flex items-center justify-center text-2xl md:text-3xl flex-shrink-0">
             {getServiceIcon(request.serviceId)}
@@ -59,17 +82,22 @@ const TrackingCard: React.FC<TrackingCardProps> = ({ request, onContactDispatche
         </div>
         
         <div className="flex items-center justify-between md:justify-end gap-3 w-full md:w-auto">
-          {dispatcher && (
+          {dispatcher ? (
             <div className="flex items-center gap-2 bg-sand/30 px-3 py-1.5 md:py-2 rounded-2xl border border-navy/5">
               <div className="w-7 h-7 md:w-8 md:h-8 rounded-full overflow-hidden border border-white shadow-sm flex-shrink-0">
                 <img src={dispatcher.photoUrl} alt={dispatcher.name} className="w-full h-full object-cover" />
               </div>
               <div className="text-left overflow-hidden max-w-[80px] md:max-w-none">
-                <p className="text-[8px] md:text-[10px] uppercase font-bold text-navy/40 tracking-widest leading-none mb-1">Assigned</p>
+                <p className="text-[8px] md:text-[10px] uppercase font-bold text-navy/40 tracking-widest leading-none mb-1">Scout</p>
                 <p className="text-[11px] md:text-xs font-bold text-navy leading-none truncate">{dispatcher.name}</p>
               </div>
             </div>
-          )}
+          ) : request.assignedDispatcherId ? (
+            <div className="flex items-center gap-2 bg-sand/10 px-3 py-1.5 md:py-2 rounded-2xl border border-navy/5 animate-pulse">
+               <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-navy/5 flex-shrink-0" />
+               <div className="h-4 w-16 bg-navy/5 rounded" />
+            </div>
+          ) : null}
 
           <div className="text-right">
             <span className="bg-sage/10 text-sage px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border border-sage/20 whitespace-nowrap">
@@ -79,23 +107,52 @@ const TrackingCard: React.FC<TrackingCardProps> = ({ request, onContactDispatche
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="relative mb-6 md:mb-8 px-2">
-        <div className="absolute top-1/2 left-0 w-full h-0.5 bg-navy/5 -translate-y-1/2 rounded-full" />
+      {/* Interactive Progress Bar with Step Names Above */}
+      <div className="relative mb-10 md:mb-12 px-6">
+        <div className="absolute top-1/2 left-6 right-6 h-0.5 bg-navy/5 -translate-y-1/2 rounded-full" />
         <div 
-          className="absolute top-1/2 left-0 h-0.5 bg-sage -translate-y-1/2 rounded-full transition-all duration-1000" 
-          style={{ width: `${(currentStepIndex / (statusSteps.length - 1)) * 100}%` }}
+          className="absolute top-1/2 left-6 h-0.5 bg-sage -translate-y-1/2 rounded-full transition-all duration-700" 
+          style={{ width: currentStepIndex === -1 ? '0%' : `calc(${(currentStepIndex / (statusSteps.length - 1)) * 100}% - 4px)` }}
         />
         <div className="relative flex justify-between">
-          {statusSteps.map((step, idx) => (
-            <div key={step} className="flex flex-col items-center">
-              <div className={`w-3.5 h-3.5 md:w-4 md:h-4 rounded-full border-2 bg-white transition-all duration-500 ${
-                idx <= currentStepIndex ? 'border-sage bg-sage scale-110' : 'border-navy/10'
-              }`} />
-            </div>
-          ))}
+          {statusSteps.map((step, idx) => {
+            const isActive = idx <= currentStepIndex;
+            const isCurrent = idx === currentStepIndex;
+            return (
+              <div key={step.status} className="flex flex-col items-center group relative">
+                {/* Step Name Over Circle */}
+                <div 
+                  onClick={() => canChangeStatus && onStatusChange?.(request.id, step.status)}
+                  className={`absolute -top-6 transform -translate-y-1/2 whitespace-nowrap text-[8px] md:text-[9px] font-bold uppercase tracking-[0.2em] transition-all duration-300 ${
+                    isActive ? 'text-sage' : 'text-navy/20'
+                  } ${canChangeStatus ? 'cursor-pointer hover:text-navy hover:scale-110' : ''}`}
+                >
+                  {step.label}
+                </div>
+
+                {/* Circle */}
+                <div 
+                  onClick={() => canChangeStatus && onStatusChange?.(request.id, step.status)}
+                  className={`w-4 h-4 md:w-5 md:h-5 rounded-full border-2 bg-white transition-all duration-500 relative z-10 ${
+                    isActive ? 'border-sage bg-sage scale-110' : 'border-navy/10 group-hover:border-navy/20'
+                  } ${canChangeStatus ? 'cursor-pointer hover:shadow-lg hover:shadow-sage/20 active:scale-90' : ''}`}
+                >
+                  {isCurrent && (
+                    <div className="absolute inset-0 bg-white/40 rounded-full animate-ping" />
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
+
+      {/* Children Content (Optional Extra Info) */}
+      {children && (
+        <div className="mb-6 animate-in fade-in duration-300">
+          {children}
+        </div>
+      )}
 
       {/* AI Reassurance */}
       {request.aiReassurance && (
@@ -126,7 +183,7 @@ const TrackingCard: React.FC<TrackingCardProps> = ({ request, onContactDispatche
           className="w-full md:w-auto bg-navy text-sand py-3 px-6 rounded-2xl text-sm font-bold hover:bg-navy/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-navy/10"
         >
           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
-          Contact Dispatcher
+          Contact Support / Scout
         </button>
       </div>
 
